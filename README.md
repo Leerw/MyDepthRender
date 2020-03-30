@@ -4,7 +4,6 @@
 
 - OpenGL
 - GLEW
-- GLFW
 - GLUT
 - GLM
 - OpenCV

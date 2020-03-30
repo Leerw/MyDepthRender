@@ -9,7 +9,6 @@ find_package(GLEW REQUIRED)
 find_package(glm REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common io)
 
-include_directories("${PROJECT_SOURCE_DIR}/include/GLFW")
 include_directories(${GLUT_INCLUDE_DIR})
 include_directories(${OpenGL_INCLUDE_DIR})
 include_directories(${GLEW_INCLUDE_DIR})
