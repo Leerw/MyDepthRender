@@ -1,3 +1,5 @@
+#include "opencv2/highgui/highgui.hpp"
+#include "opencv2/imgproc/imgproc.hpp"
 #include <GL/glew.h>
 #include <GL/glut.h>
 #include <GLFW/glfw3.h>
@@ -6,29 +8,33 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/io/ply_io.h>
 #include <pcl/point_types.h>
-#include "opencv2/highgui/highgui.hpp"
-#include "opencv2/imgproc/imgproc.hpp"
-
 
 #include <cmath>
 #include <iostream>
 #include <vector>
 
-
 using namespace std;
 using namespace cv;
 using namespace glm;
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
+pcl::PointCloud<pcl::PointXYZ>::Ptr part_cloud, complete_cloud;
+
+double sum_x{0}, sum_y{0}, sum_z{0};
+float mean_x{0}, mean_y{0}, mean_z{0};
+float max_x{0}, max_y{0}, max_z{0};
+float radius = 0.2;
+float scale_x{1}, scale_y{1}, scale_z{1};
+
 vec3 camPos;
 vec3 centerPos(0.0, 0.0, 0.0);
-string imageName;
-string imagePath;
+std::string completeDir;
+std::string partDir;
 int currentView = 0;
-float radius = 0.2;
-vector<vec3> camPosList;
+std::vector<vec3> camPosList;
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr readPCD(string filename) {
+bool mode = true;
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr readPCD(string filename, bool isComplete) {
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
   if (pcl::io::loadPCDFile<pcl::PointXYZ>(filename, *cloud) == -1) {
@@ -40,30 +46,33 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr readPCD(string filename) {
             << std::endl;
 
   // translate, normalize and scale pcd
-  double sum_x{0}, sum_y{0}, sum_z{0};
-  float mean_x{0}, mean_y{0}, mean_z{0};
-  for (size_t i = 0; i < cloud->points.size(); i++) {
-    sum_x += cloud->points[i].x;
-    sum_y += cloud->points[i].y;
-    sum_z += cloud->points[i].z;
+  if (isComplete) {
+    for (size_t i = 0; i < cloud->points.size(); i++) {
+      sum_x += cloud->points[i].x;
+      sum_y += cloud->points[i].y;
+      sum_z += cloud->points[i].z;
+    }
+    mean_x = sum_x / cloud->points.size();
+    mean_y = sum_y / cloud->points.size();
+    mean_z = sum_z / cloud->points.size();
   }
-  mean_x = sum_x / cloud->points.size();
-  mean_y = sum_y / cloud->points.size();
-  mean_z = sum_z / cloud->points.size();
-
-  float max_x{0}, max_y{0}, max_z{0};
 
   for (size_t i = 0; i < cloud->points.size(); i++) {
     cloud->points[i].x -= mean_x;
     cloud->points[i].y -= mean_y;
     cloud->points[i].z -= mean_z;
-    max_x = cloud->points[i].x > max_x ? cloud->points[i].x : max_x;
-    max_y = cloud->points[i].y > max_y ? cloud->points[i].y : max_y;
-    max_z = cloud->points[i].z > max_z ? cloud->points[i].z : max_z;
+    if (isComplete) {
+      max_x = cloud->points[i].x > max_x ? cloud->points[i].x : max_x;
+      max_y = cloud->points[i].y > max_y ? cloud->points[i].y : max_y;
+      max_z = cloud->points[i].z > max_z ? cloud->points[i].z : max_z;
+    }
   }
 
-  float scale_x{max_x / radius}, scale_y{max_y / radius},
-      scale_z{max_z / radius};
+  if (isComplete) {
+    scale_x = max_x / radius;
+    scale_y = max_y / radius;
+    scale_z = max_z / radius;
+  }
 
   for (size_t i = 0; i < cloud->points.size(); i++) {
     cloud->points[i].x /= scale_x;
@@ -75,8 +84,13 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr readPCD(string filename) {
 }
 
 void display() {
-  if (currentView >= camPosList.size()) {
+  if (currentView >= camPosList.size() * 2) {
     exit(0);
+  }
+
+  // render partial point cloud
+  if (currentView >= camPosList.size()) {
+    mode = false;
   }
 
   int w = glutGet(GLUT_WINDOW_WIDTH);
@@ -92,7 +106,7 @@ void display() {
   gluPerspective(43, ar, zNear, zFar); // simulate kinect
   glMatrixMode(GL_MODELVIEW);
   glLoadIdentity();
-  vec3 eye = camPosList[currentView];
+  vec3 eye = camPosList[currentView % camPosList.size()];
   gluLookAt(eye[0], eye[1], eye[2], centerPos[0], centerPos[1], centerPos[2], 0,
             1, 0);
   static float angle = 0;
@@ -100,8 +114,16 @@ void display() {
 
   // render point cloud
   glBegin(GL_POINTS);
-  for (size_t i = 0; i < cloud->points.size(); i++) {
-    glVertex3f(cloud->points[i].x, cloud->points[i].y, cloud->points[i].z);
+  if (true == mode) {
+    for (size_t i = 0; i < complete_cloud->points.size(); i++) {
+      glVertex3f(complete_cloud->points[i].x, complete_cloud->points[i].y,
+                 complete_cloud->points[i].z);
+    }
+  } else {
+    for (size_t i = 0; i < part_cloud->points.size(); i++) {
+      glVertex3f(part_cloud->points[i].x, part_cloud->points[i].y,
+                 part_cloud->points[i].z);
+    }
   }
   glEnd();
   glPopMatrix();
@@ -127,17 +149,23 @@ void display() {
   cv::flip(img, flipped, 0);
 
   cv::Mat imgRGB(glutGet(GLUT_WINDOW_HEIGHT), glutGet(GLUT_WINDOW_WIDTH),
-                 CV_32FC3); // output depth image
+                 CV_32FC3);
+  // output depth image
   for (int i = 0; i < imgRGB.rows; i++) {
     for (int j = 0; j < imgRGB.cols; j++) {
-      imgRGB.at<cv::Vec3f>(i, j) =
-          cv::Vec3f(img.at<float>(i, j), img.at<float>(i, j),
-                    img.at<float>(i, j)); // flip image
+      imgRGB.at<cv::Vec3f>(i, j) = cv::Vec3f(
+          img.at<float>(i, j), img.at<float>(i, j), img.at<float>(i, j));
     }
   }
 
-  string currentName =
-      imagePath + "//" + imageName + "_Cam_" + to_string(currentView) + ".png";
+  std::string currentName;
+  if (true == mode) {
+    currentName = completeDir + "//complete" + +"_cam_" +
+                  to_string(currentView % camPosList.size()) + ".png";
+  } else {
+    currentName = partDir + "//part" + +"_cam_" +
+                  to_string(currentView % camPosList.size()) + ".png";
+  }
   cv::imwrite(currentName, imgRGB);
 
   currentView++;
@@ -150,22 +178,30 @@ void timer(int value) {
 }
 
 int main(int argc, char **argv) {
-  std::cout << "Start" << std::endl;
+  // parse args
+  std::string completePCD = argv[1];
+  std::string partPCD = argv[2];
+  std::string cameraFile = argv[3];
+  completeDir = argv[4];
+  partDir = argv[5];
+  int width = stoi(argv[6]);
+  int height = stoi(argv[7]);
 
-  cloud = readPCD(argv[1]);
+  // read point cloud
+  complete_cloud = readPCD(completePCD, true);
+  part_cloud = readPCD(partPCD, false);
 
+  // read camera extrinsic parameters
   float x, y, z;
-  ifstream fin(argv[2]);
+  ifstream fin(cameraFile);
   while (fin >> x >> y >> z) {
     vec3 c(x, y, z);
     camPosList.push_back(c);
   }
-  imageName = string(argv[3]);
-  imagePath = string(argv[4]);
 
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH | GLUT_DOUBLE);
-  glutInitWindowSize(256, 256);
+  glutInitWindowSize(width, height);
   glutCreateWindow("GLUT");
   glewInit();
   glutDisplayFunc(display);
