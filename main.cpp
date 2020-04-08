@@ -140,9 +140,7 @@ void display() {
            (2.0f * depth[i * img.cols + j] - 1) * (zFar - zNear)); // [zNear, zFar]
       depth[i * img.cols + j] =
           (depth[i * img.cols + j] - zNear) / (zFar - zNear); // [0, 1]
-      // img.at<float>(i, j) = depth[i * img.cols + j] * 255;
-      img.at<float>(i, j) = (1.0f - depth[i * img.cols + j]) * 255;
-      // img.at<float>(i, j) = (1.0f - depth[i*img.cols + j]);
+      img.at<float>(i, j) = depth[i * img.cols + j] * 255;
     }
   }
   cv::Mat flipped(img);
