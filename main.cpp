@@ -14,23 +14,24 @@
 #include <vector>
 
 using namespace std;
-using namespace cv;
-using namespace glm;
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr part_cloud, complete_cloud;
 
 double sum_x{0}, sum_y{0}, sum_z{0};
 float mean_x{0}, mean_y{0}, mean_z{0};
 float max_x{0}, max_y{0}, max_z{0};
-float radius = 0.2;
+float radius = 0.5;
 float scale_x{1}, scale_y{1}, scale_z{1};
+const float eps = 1e-3;
+const float zNear = std::sqrt(3) - radius - eps;
+const float zFar = zNear + 1 + eps;
 
-vec3 camPos;
-vec3 centerPos(0.0, 0.0, 0.0);
+glm::vec3 camPos;
+glm::vec3 centerPos(0.0, 0.0, 0.0);
 std::string completeDir;
 std::string partDir;
 int currentView = 0;
-std::vector<vec3> camPosList;
+std::vector<glm::vec3> camPosList;
 
 bool mode = true;
 
@@ -101,12 +102,10 @@ void display() {
   glLoadIdentity();
 
   double ar = w / static_cast<double>(h);
-  const float zNear = 1;
-  const float zFar = 2;
   gluPerspective(43, ar, zNear, zFar); // simulate kinect
   glMatrixMode(GL_MODELVIEW);
   glLoadIdentity();
-  vec3 eye = camPosList[currentView % camPosList.size()];
+  glm::vec3 eye = camPosList[currentView % camPosList.size()];
   gluLookAt(eye[0], eye[1], eye[2], centerPos[0], centerPos[1], centerPos[2], 0,
             1, 0);
   static float angle = 0;
@@ -138,9 +137,10 @@ void display() {
       depth[i * img.cols + j] =
           (2.0 * zNear * zFar) /
           (zFar + zNear -
-           (2.0f * depth[i * img.cols + j] - 1) * (zFar - zNear));
+           (2.0f * depth[i * img.cols + j] - 1) * (zFar - zNear)); // [zNear, zFar]
       depth[i * img.cols + j] =
-          (depth[i * img.cols + j] - zNear) / (zFar - zNear);
+          (depth[i * img.cols + j] - zNear) / (zFar - zNear); // [0, 1]
+      // img.at<float>(i, j) = depth[i * img.cols + j] * 255;
       img.at<float>(i, j) = (1.0f - depth[i * img.cols + j]) * 255;
       // img.at<float>(i, j) = (1.0f - depth[i*img.cols + j]);
     }
@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
   float x, y, z;
   ifstream fin(cameraFile);
   while (fin >> x >> y >> z) {
-    vec3 c(x, y, z);
+    glm::vec3 c(x, y, z);
     camPosList.push_back(c);
   }
 
